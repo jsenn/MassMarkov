@@ -156,24 +156,8 @@ class Source:
         return agents_taken
 
     def update(self, dt):
-        throw new NotImplementedException()
+        raise NotImplementedException()
 
-
-def ConstantRateSource(Source):
-    def __init__(self, agent_count, agent_chunk_size, time_between_chunks):
-        super().__init__(agent_count)
-        # static values
-        self.chunk_size = agent_chunk_size
-        self.time_between_chunks = time_between_chunks
-        # dynamic values
-        self.time_since_last_chunk = 0
-
-    def update(self, dt):
-        self.time_since_last_chunk += dt
-        while self.get_agents_left() > 0 and self.time_since_last_chunk > self.time_between_chunks:
-            agents_to_produce = min(self.get_agents_left(), self.chunk_size)
-            self.produce_agents([Agent() for _ in range(agents_to_produce)])
-            self.time_since_last_chunk -= self.time_between_chunks
 
 
 class Sink:
@@ -184,22 +168,91 @@ class Sink:
         pass
 
 
+class Sink:
+    def __init__(self):
+        super().__init__()
+
+    def add_agents_to_outbox(self, agents):
+        raise RuntimeError("Can't produce agents from a Sink Node!")
+
+    def can_connect_in(self, other): return True
+    def can_connect_out(self, other): return False
+    def is_root(self): return False
+
 class Node:
     def __init__(self):
-        pass
+        # dynamic values
+        self.inbox = [] # [Agent]
+        self.outbox = [] # [Agent]
 
     def update(self, dt):
         pass
 
+    def add_agents_to_outbox(self, agents):
+        self.outbox += agents
+
     def can_connect_in(self, other):
-        return False
+        raise NotImplementedError()
 
     def can_connect_out(self, other):
-        return False
+        raise NotImplementedError()
 
     def is_root(self):
-        return False
+        raise NotImplementedError()
 
+    def in_capacity(self):
+        return float("inf")
+
+    def peek_outgoing_agents(self):
+        return self.outbox[:]
+
+    def pull_n_agents(self, n):
+        assert(n <= len(self.outbox))
+        agents = self.outbox[:n]
+        self.outbox = self.outbox[n:]
+        return agents
+
+    def push_agents(self, agents):
+        assert(len(agents) <= self.in_capacity())
+        self.inbox += agents
+
+
+class Source(Node):
+    def __init__(self, max_agents_produced=float("inf")):
+        super().__init__(self)
+        # static values
+        self.max_agents_produced = max_agents_produced
+        # dynamic values
+        self.agents_left = max_agents_produced
+
+    def get_agents_left(self):
+        return self.agents_left
+
+    def in_capacity(self): return 0
+    def can_connect_in(self): return False
+    def can_connect_out(self): return True
+
+    def add_agents_to_outbox(self, agents):
+        assert(len(agents) <= self.agents_left)
+        super().add_agents_to_outbox(agents)
+        self.agents_left -= len(agents)
+
+
+class ConstantRateSource(Source):
+    def __init__(self, agent_count, agent_chunk_size, time_between_chunks):
+        super().__init__(agent_count)
+        # static values
+        self.chunk_size = agent_chunk_size
+        self.time_between_chunks = float(time_between_chunks)
+        # dynamic values
+        self.time_since_last_chunk = 0.0
+
+    def update(self, dt):
+        self.time_since_last_chunk += dt
+        while self.get_agents_left() > 0 and self.time_since_last_chunk > self.time_between_chunks:
+            agents_to_produce = min(self.get_agents_left(), self.chunk_size)
+            self.add_agents_to_outbox([Agent() for _ in range(agents_to_produce)])
+            self.time_since_last_chunk -= self.time_between_chunks
 
 class Network:
     def __init__(self):
@@ -251,11 +304,42 @@ class Network:
         for idx in self.root_indexes:
             q.append(self.nodes[idx])
 
-        # need to make sure that if 2 nodes connect out to the same output node, and that output node
-        # has a rate limit, then conflicts are shared equally!
         while len(q) > 0:
-            curr = q.pop()
+            curr = q.popleft()
+            parents = self.node_to_parents[curr]
+            if len(parents) == 0:
+                break;
+            capacity = curr.in_capacity()
+            incoming_queues = []
+            total_incoming_agents = 0
+            for parent in parents:
+                incoming = dequeue(parent.peek_outgoing_agents())
+                if len(incoming) > 0:
+                    incoming_queues.append(incoming)
+                    total_incoming_agents += len(incoming)
 
+            # sort the queues by length, longest to shortest
+            sort(incoming_queues, key=lambda xs: len(xs), reverse=True)
+
+            # distribute agents to the current node in a round-robin fashion:
+            num_agents_left = min(capacity, total_incoming_agents)
+            agents_taken_per_parent = [[] for parent in parents]
+            incoming_idx = 0
+            while num_agents_left > 0:
+                curr_queue = incoming_queues[incoming_idx]
+                agents_taken = agents_taken_per_parent[incoming_idx]
+                incoming_idx = (incoming_idx + 1) % len(incoming_queues)
+                if len(curr_queue) == 0:
+                    continue
+
+                agents_taken.append(curr_queue.popleft())
+                num_agents_left -= 1
+
+            for parent_idx in range(len(parents)):
+                parent = parents[parent_idx]
+                transferred_agents = agents_taken_per_parent[parent_idx]
+                parent.pull_n_agents(len(transferred_agents))
+                curr.push_agents(transferred_agents)
 
 def mean(xs):
     assert(len(xs) > 0)
@@ -276,7 +360,8 @@ if __name__ == "__main__":
     floor = Floor(width * length)
     routeLR = FruinBiRoute(length, floor)
     routeRL = FruinBiRoute(length, floor)
-    sourceLR = new ConstantRateSource(100, 1);
+    sourceL = ConstantRateSource(100, 1, 1);
+    sinkL = Sink()
 
     dt = 0.2
     birth_rate = 1
