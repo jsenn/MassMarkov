@@ -10,4 +10,5 @@ Ideas for modelling this:
   - Rate-limiting could be implemented by attaching an intermediate Route/queue to the outgoing Node, which has a fixed capacity and a constant processing time
 
 ## Random ideas
-* Use different models for velocity. Maybe 1D Social Forces or Moussaid's speed rule?
+* Add some sort of 1D Social Forces?
+* Add relaxation time to MoussaidRoute's speed model (probably can share work with the above point about SF)

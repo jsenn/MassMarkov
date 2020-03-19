@@ -16,9 +16,13 @@ B_bi = 0.341
 class Agent:
     _NEXT_ID = 0
 
-    def __init__(self):
+    def __init__(self, preferred_speed_mps = 1.3, relaxation_time_s = 0.5):
+        # static values
         self.id = Agent._NEXT_ID
         Agent._NEXT_ID += 1
+
+        self.preferred_speed = preferred_speed_mps
+        self.relaxation_time = relaxation_time_s
 
 
 class Floor:
@@ -146,6 +150,17 @@ class Route(Node):
     def get_agent_speed(self, agent):
         raise NotImplementedError()
 
+    def get_distance_to_next_agent(self, agent):
+        agent_progress = self.agent_id_to_progress[agent.id]
+        min_greater_progress = float("inf")
+        for id in self.agent_id_to_progress:
+            curr_progress = self.agent_id_to_progress[id]
+            if curr_progress <= agent_progress or id == agent.id:
+                continue
+            if curr_progress < min_greater_progress:
+                min_greater_progress = curr_progress
+        return min_greater_progress
+
     def is_root(self):
         return False
 
@@ -217,6 +232,18 @@ class ConstantTimeRoute(Route):
 
     def get_agent_speed(self, agent):
         return self.get_distance() / self.crossing_time
+
+
+class MoussaidRoute(Route):
+    def __init__(self, distance, floor):
+        super().__init__(distance, floor)
+
+    def get_agent_speed(self, agent):
+        distance_to_next_in_front = self.get_distance_to_next_agent(agent)
+        max_safe_speed = distance_to_next_in_front / agent.relaxation_time
+        v_des = min(agent.preferred_speed, max_safe_speed)
+        # TODO: keep track of speeds, and set dv/dt = (v_des - v_curr) / tau?
+        return v_des
 
 
 
@@ -343,10 +370,10 @@ if __name__ == "__main__":
     width = 5
     length = 8
     floor = Floor(width * length)
-    routeLR = FruinBiRoute(length, floor)
-    routeRL = FruinBiRoute(length, floor)
-    sourceL = ConstantRateSource(100, 1, 1);
-    sourceR = ConstantRateSource(100, 1, 1);
+    routeLR = MoussaidRoute(length, floor)
+    routeRL = MoussaidRoute(length, floor)
+    sourceL = ConstantRateSource(100, 1, 1)
+    sourceR = ConstantRateSource(100, 1, 1)
     sinkL = Sink()
     sinkR = Sink()
 
@@ -384,5 +411,5 @@ if __name__ == "__main__":
     print("Max population:\t%d" % max(floor_populations))
     print("Avg population:\t%f" % avg)
     print("Stddev population:\t%f" % stddev(floor_populations, avg))
-    #print("\n".join(map(str, floor_populations)))
+    print("\n".join(map(str, floor_populations)))
 
