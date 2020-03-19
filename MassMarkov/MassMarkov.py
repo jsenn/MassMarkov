@@ -1,6 +1,6 @@
 import math
 
-from collections import dequeue
+from collections import deque
 
 # A = 281 feet per minute
 # B = 752 foot-modules per second (feet per minute * square feet per person)
@@ -38,6 +38,9 @@ class Floor:
     def get_agent_module(self):
         return self.area / self.population if self.population > 0 else self.area
 
+    def add_agent(self, agent):
+        self.population += 1
+
     def add_agents(self, agents):
         self.population += len(agents)
 
@@ -46,47 +49,131 @@ class Floor:
         assert(self.population >= 0)
 
 
-class Route:
+class Node:
+    def __init__(self):
+        # dynamic values
+        self.inbox = [] # [Agent]
+        self.outbox = [] # [Agent]
+
+    def update(self, dt):
+        pass
+
+    def add_outgoing_agents(self, agents):
+        self.outbox += agents
+
+    def add_outgoing_agent(self, agent):
+        self.outbox.append(agent)
+
+    def can_connect_in(self, other):
+        raise NotImplementedError()
+
+    def can_connect_out(self, other):
+        raise NotImplementedError()
+
+    def is_root(self):
+        raise NotImplementedError()
+
+    def in_capacity(self):
+        return float("inf")
+
+    def peek_outgoing_agents(self):
+        return self.outbox[:]
+
+    def peek_incoming_agents(self):
+        return self.inbox[:]
+
+    def pull_n_agents(self, n):
+        assert(n <= len(self.outbox))
+        agents = self.outbox[:n]
+        self.outbox = self.outbox[n:]
+        return agents
+
+    def push_agents(self, agents):
+        assert(len(agents) <= self.in_capacity())
+        self.inbox += agents
+
+    def clear_incoming_agents(self):
+        self.inbox = []
+
+class Sink(Node):
+    def __init__(self):
+        super().__init__()
+
+    def add_agents_to_outbox(self, agents):
+        raise RuntimeError("Can't produce agents from a Sink Node!")
+
+    def can_connect_in(self, other): return True
+    def can_connect_out(self, other): return False
+    def is_root(self): return False
+
+
+class Source(Node):
+    def __init__(self, max_agents_produced=float("inf")):
+        super().__init__()
+        # static values
+        self.max_agents_produced = max_agents_produced
+        # dynamic values
+        self.agents_left = max_agents_produced
+
+    def is_root(self):
+        return True
+
+    def get_agents_left(self):
+        return self.agents_left
+
+    def in_capacity(self): return 0
+    def can_connect_in(self, other): return False
+    def can_connect_out(self, other): return True
+
+    def add_agents_to_outbox(self, agents):
+        assert(len(agents) <= self.agents_left)
+        super().add_outgoing_agents(agents)
+        self.agents_left -= len(agents)
+
+
+class Route(Node):
     def __init__(self, distance, floor):
+        super().__init__()
+
         # static values
         self.distance = float(distance)
         self.floor = floor
 
         # dynamic values
         self.agents = []
-        self.incoming_agents = []
-        self.outgoing_agents = []
         self.agent_id_to_progress = {}
 
     def get_agent_speed(self, agent):
         raise NotImplementedError()
 
-    def set_incoming_agents(self, agents):
-        self.incoming_agents = agents
-        self.floor.add_agents(agents)
+    def is_root(self):
+        return False
 
-    def get_outgoing_agents(self):
-        return self.outgoing_agents
+    def can_connect_in(self, other): return True
+    def can_connect_out(self, other): return True
 
-    def clear_outgoing_agents(self, count):
-        done_agents = self.outgoing_agents[:count]
-        self.floor.remove_agents(done_agents)
-        self.outgoing_agents = self.outgoing_agents[count:]
+    def add_agent(self, agent):
+        self.agents.append(agent)
+        self.agent_id_to_progress[agent.id] = 0
+        self.floor.add_agent(agent)
 
     def update(self, dt):
-        for agent in self.incoming_agents:
-            self.agents.append(agent)
-            self.agent_id_to_progress[agent.id] = 0
-        self.incoming_agents = []
+        for agent in self.peek_incoming_agents():
+            self.add_agent(agent)
+        self.clear_incoming_agents()
 
         remaining_agents = []
+        removed_agents = []
         for agent in self.agents:
             self.agent_id_to_progress[agent.id] += self.get_agent_speed(agent) * dt
             if self.agent_id_to_progress[agent.id] >= self.distance:
-                self.outgoing_agents.append(agent)
-                del self.agent_id_to_progress[agent.id]
+                removed_agents.append(agent)
             else:
                 remaining_agents.append(agent)
+        self.add_outgoing_agents(removed_agents)
+        self.floor.remove_agents(removed_agents)
+        for agent in removed_agents:
+            del self.agent_id_to_progress[agent.id]
         self.agents = remaining_agents
 
 
@@ -131,111 +218,6 @@ class ConstantTimeRoute(Route):
     def get_agent_speed(self, agent):
         return self.get_distance() / self.crossing_time
 
-
-class Source:
-    def __init__(self, agent_count):
-        # static values
-        self.total_agent_count = agent_count
-
-        # dynamic values
-        self.agents_left = self.total_agent_count
-        self.outgoing_agents = [] # [Agent]
-
-    def get_agents_left(self): return self.agents_left
-
-    def produce_agents(self, agents):
-        self.outgoing_agents += agents
-        self.agents_left -= len(agents)
-
-    def take_all(self):
-        return self.take_agents(len(self.outgoing_agents))
-
-    def take_up_to_n(self, count):
-        agents_taken = self.outgoing_agents[:count]
-        self.outgoing_agents = self.outgoing_agents[count:]
-        return agents_taken
-
-    def update(self, dt):
-        raise NotImplementedException()
-
-
-
-class Sink:
-    def __init__(self):
-        pass
-
-    def update(self, dt):
-        pass
-
-
-class Sink:
-    def __init__(self):
-        super().__init__()
-
-    def add_agents_to_outbox(self, agents):
-        raise RuntimeError("Can't produce agents from a Sink Node!")
-
-    def can_connect_in(self, other): return True
-    def can_connect_out(self, other): return False
-    def is_root(self): return False
-
-class Node:
-    def __init__(self):
-        # dynamic values
-        self.inbox = [] # [Agent]
-        self.outbox = [] # [Agent]
-
-    def update(self, dt):
-        pass
-
-    def add_agents_to_outbox(self, agents):
-        self.outbox += agents
-
-    def can_connect_in(self, other):
-        raise NotImplementedError()
-
-    def can_connect_out(self, other):
-        raise NotImplementedError()
-
-    def is_root(self):
-        raise NotImplementedError()
-
-    def in_capacity(self):
-        return float("inf")
-
-    def peek_outgoing_agents(self):
-        return self.outbox[:]
-
-    def pull_n_agents(self, n):
-        assert(n <= len(self.outbox))
-        agents = self.outbox[:n]
-        self.outbox = self.outbox[n:]
-        return agents
-
-    def push_agents(self, agents):
-        assert(len(agents) <= self.in_capacity())
-        self.inbox += agents
-
-
-class Source(Node):
-    def __init__(self, max_agents_produced=float("inf")):
-        super().__init__(self)
-        # static values
-        self.max_agents_produced = max_agents_produced
-        # dynamic values
-        self.agents_left = max_agents_produced
-
-    def get_agents_left(self):
-        return self.agents_left
-
-    def in_capacity(self): return 0
-    def can_connect_in(self): return False
-    def can_connect_out(self): return True
-
-    def add_agents_to_outbox(self, agents):
-        assert(len(agents) <= self.agents_left)
-        super().add_agents_to_outbox(agents)
-        self.agents_left -= len(agents)
 
 
 class ConstantRateSource(Source):
@@ -293,33 +275,36 @@ class Network:
     def update(self, dt):
         for node in self.nodes:
             node.update(dt)
-        self.compute_costs()
-        self.propagate_agents()
+        self._compute_costs()
+        self._propagate_agents()
 
-    def compute_costs(self):
+    def _compute_costs(self):
         pass
 
-    def propagate_agents(self):
-        q = dequeue([])
+    def _propagate_agents(self):
+        q = deque([])
         for idx in self.root_indexes:
             q.append(self.nodes[idx])
 
         while len(q) > 0:
             curr = q.popleft()
-            parents = self.node_to_parents[curr]
+            for child in self.node_to_children[curr]:
+                q.append(child)
+
+            parents = list(self.node_to_parents[curr])
             if len(parents) == 0:
-                break;
+                continue;
             capacity = curr.in_capacity()
             incoming_queues = []
             total_incoming_agents = 0
             for parent in parents:
-                incoming = dequeue(parent.peek_outgoing_agents())
+                incoming = deque(parent.peek_outgoing_agents())
                 if len(incoming) > 0:
                     incoming_queues.append(incoming)
                     total_incoming_agents += len(incoming)
 
             # sort the queues by length, longest to shortest
-            sort(incoming_queues, key=lambda xs: len(xs), reverse=True)
+            incoming_queues.sort(key=lambda xs: len(xs), reverse=True)
 
             # distribute agents to the current node in a round-robin fashion:
             num_agents_left = min(capacity, total_incoming_agents)
@@ -361,7 +346,22 @@ if __name__ == "__main__":
     routeLR = FruinBiRoute(length, floor)
     routeRL = FruinBiRoute(length, floor)
     sourceL = ConstantRateSource(100, 1, 1);
+    sourceR = ConstantRateSource(100, 1, 1);
     sinkL = Sink()
+    sinkR = Sink()
+
+    network = Network()
+    network.add_node(sourceL)
+    network.add_node(sourceR)
+    network.add_node(sinkL)
+    network.add_node(sinkR)
+    network.add_node(routeLR)
+    network.add_node(routeRL)
+
+    network.connect_nodes(sourceL, routeLR)
+    network.connect_nodes(routeLR, sinkR)
+    network.connect_nodes(sourceR, routeRL)
+    network.connect_nodes(routeRL, sinkL)
 
     dt = 0.2
     birth_rate = 1
@@ -371,25 +371,10 @@ if __name__ == "__main__":
     floor_populations = []
 
     time = 0
-    time_since_last_birth = 0
-    agents_left = 200
-    while agents_left > 0 or floor.get_population() > 0:
-        new_agents = []
-        if agents_left > 0:
-            while time_since_last_birth >= time_between_births:
-                new_agents.append(Agent())
-                time_since_last_birth -= time_between_births
-                agents_left -= 1
-
-        route.set_incoming_agents(new_agents)
-        route.update(dt)
-
-        done_agents = route.get_outgoing_agents()
-        route.clear_outgoing_agents(len(done_agents))
-
-        floor_populations.append(float(floor.get_population()))
-
-        time_since_last_birth += dt
+    max_time = 200
+    while time < max_time:
+        network.update(dt)
+        floor_populations.append(floor.get_population())
         time += dt
 
     avg = mean(floor_populations)
@@ -399,5 +384,5 @@ if __name__ == "__main__":
     print("Max population:\t%d" % max(floor_populations))
     print("Avg population:\t%f" % avg)
     print("Stddev population:\t%f" % stddev(floor_populations, avg))
-    print("\n".join(map(str, floor_populations)))
+    #print("\n".join(map(str, floor_populations)))
 
