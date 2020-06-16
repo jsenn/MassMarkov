@@ -21,7 +21,28 @@
     <EnableUnmanagedDebugging>false</EnableUnmanagedDebugging>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="agent.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="MassMarkov.py" />
+    <Compile Include="floor.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="network.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="node.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="source.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="route.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="util.py">
+      <SubType>Code</SubType>
+    </Compile>
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
   <!-- Uncomment the CoreCompile target to enable the Build command in
