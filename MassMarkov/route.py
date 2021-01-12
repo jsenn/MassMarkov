@@ -2,6 +2,8 @@ from floor import Floor
 from node import Node
 
 
+# Constants
+# ---------
 # A = 281 feet per minute
 # B = 752 foot-modules per second (feet per minute * square feet per person)
 A_uni = 1.43
